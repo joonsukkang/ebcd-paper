@@ -1,0 +1,437 @@
+---
+title: "sectors"
+output: html_document
+date: "2022-12-04"
+---
+
+# load data
+
+```{r}
+library(tidyverse)
+library(here)
+```
+
+
+Daily index prices are downloaded from Refinitiv (Datastream Index Pricing) via WRDS.
+
+```{r}
+df <- read_csv(here('data', 'fin', 'refinitiv_datastream_sectors.csv'), 
+    col_types = cols(valuedate = col_date(format = "%Y%m%d")))
+
+df %>%
+  select(dsindexcode, valuedate, pi_) %>%
+  mutate(logp = log(pi_)) %>%
+  group_by(dsindexcode) %>%
+  mutate(logret = logp-lag(logp)) %>%
+  ungroup() %>%
+  select(dsindexcode, valuedate, logret) %>%
+  filter(valuedate != as.Date('2021-11-25')) %>% # removes a suspicious entry (non-trading day on Thanksgiving)
+  pivot_wider(names_from=dsindexcode, values_from=logret) %>%
+  filter(valuedate >= as.Date('2020-01-01'),
+         valuedate <= as.Date('2022-11-29')) -> df.ret
+
+  
+nrow(df.ret)
+```
+
+734 trading days from 2020-01-02 to 2022-11-29
+
+
+```{r}
+df %>%
+  select(dsindexcode, indexdesc) %>%
+  mutate(dsindexcode = as.character(dsindexcode)) %>%
+  unique() -> df.sector
+
+df.sector$sector <- c( 'Consumer Discretionary',
+                    'Consumer Staples',
+                    'Energy',
+                    'Financials',
+                    'Health Care',
+                    'Industrials',
+                    'Information Technology',
+                    'Materials',
+                    'Communication Services',
+                    'Utilities',
+                    'Real Estate'
+                    )
+print(df.sector)
+
+df.sector %>%
+  select(-indexdesc) %>%
+  mutate(sector = factor(sector, 
+                         levels=c(
+                           'Energy',
+                           'Information Technology',
+                           'Health Care',
+                           'Materials',
+                           'Industrials',
+                           'Consumer Staples',
+                           'Financials',
+                           'Consumer Discretionary',
+                           'Utilities',
+                           'Real Estate',
+                           'Communication Services'))) -> df.sector
+```
+
+# Holding Period Returns
+
+
+```{r}
+df %>%
+  select(dsindexcode, valuedate, pi_) %>%
+  filter(valuedate %in% 
+           as.Date(c('2020-01-02', '2020-11-09', '2022-01-03', '2022-11-29'))
+         ) %>%
+  pivot_wider(names_from=dsindexcode, values_from=pi_) -> df1
+
+data.frame(period = rep(c('Overall', 
+                      'I. Working from home', 
+                      'II. Reopening', 
+                      'III. Inflation'), each=11),
+           dsindexcode = rep(colnames(df1)[-1], times=4),
+           ret = c(unlist(df1[4,-1]/df1[1,-1]-1),
+                   unlist(df1[2,-1]/df1[1,-1]-1),
+                   unlist(df1[3,-1]/df1[2,-1]-1),
+                   unlist(df1[4,-1]/df1[3,-1]-1))
+           ) %>%
+  
+  mutate(period = factor(period, levels=c('Overall', 'I. Working from home', 'II. Reopening', 'III. Inflation'))) %>%
+  inner_join(df.sector, by='dsindexcode') %>%
+  ggplot()+
+  theme_bw()+
+  geom_col(aes(x=ret, y=sector))+
+  scale_x_continuous(breaks=seq(-0.8, 0.8, by=0.4), labels = scales::percent)+
+  scale_y_discrete(limits=rev)+
+  geom_vline(xintercept=0)+
+  xlab('')+ylab('')+
+  facet_grid(~period, scales='free_x')
+ggsave(here('output', 'fig_sectors_returns.pdf'), width=8, height=3)
+```
+
+
+# PCA and EBCD-pl
+
+
+```{r}
+X <- as.matrix(df.ret[,-1])
+
+svdX <- svd(X)
+svdX$v[,1] <- -svdX$v[,1] # flip sign for the first PC (all neg to all pos)
+svdX$u[,1] <- -svdX$u[,1]
+svdX$v[,3] <- -svdX$v[,3]
+svdX$u[,3] <- -svdX$u[,3]
+
+# Singular Values of X
+print(round(svdX$d,4))
+plot(svdX$d, ylab='singular values', typ='b')
+
+# PVE
+print(round(svdX$d^2/sum(svdX$d^2), 4))
+plot(svdX$d^2/sum(svdX$d^2), ylab='PVE', typ='b')
+
+# Cumulative PVE
+print(round(cumsum(svdX$d^2)/sum(svdX$d^2), 4))
+plot(cumsum(svdX$d^2)/sum(svdX$d^2), ylab='cumulative PVE', typ='b')
+```
+
+
+```{r}
+library(ebcd)
+N <- nrow(X)
+S <- crossprod(X)/N
+```
+
+
+```{r}
+fitK <- function(K){
+  
+  # fit EBCD-pl
+  fit <- ebcd(S=S, N=N, Kmax=K)
+  
+  # compute PVE
+  PVE <- 11*colSums(fit$EL^2)/sum(svd(fit$A)$d^2)
+  CumPVE <- cumsum(PVE)
+  
+  # preprocessing L and Z
+  matZ <- fit$Z
+  matL <- fit$EL
+  
+  col.ord <- order(colSums(matL^2), decreasing=TRUE)
+  matZ <- matZ[, col.ord]
+  matL <- matL[, col.ord]
+  
+  mat.pca <- svdX$v[,1:K]
+  signs <- sign(colSums(matL*mat.pca))
+
+  scales <- sqrt(colSums(matL^2))
+  matZ <- matZ %*% diag(x=signs*scales)
+  matL <- matL %*% diag(x=1/(signs*scales))
+  
+  matZ <- svdX$u %*% t(svdX$v) %*% matZ
+  
+  # plotting
+  inner_join(df.sector, 
+             data.frame(dsindexcode = colnames(X),
+                        PC = rep(1:ncol(matL), each=nrow(matL)),
+                        method = rep(c('EBCD-pl', 'PCA'), each=prod(dim(matL))),
+                        loadings = c(c(matL), c(mat.pca))),
+             by='dsindexcode') %>%
+    mutate(method = factor(method, levels=c('PCA', 'EBCD-pl'))) %>%
+    ggplot()+
+    theme_bw()+
+    theme(legend.position ='bottom')+
+    geom_col(aes(y=sector, x=loadings, fill=method), position='dodge')+
+    geom_vline(xintercept=0, alpha=0.3)+
+    xlab('')+ylab('')+
+    ggtitle('Loadings')+
+    facet_grid(~PC, labeller=label_both) -> fig
+  
+
+  out.list <- list(matL=matL, matZ=matZ, PVE=PVE, CumPVE=CumPVE, fig=fig)
+  return(out.list)
+}
+
+```
+
+
+```{r}
+fitK2 <- fitK(2)
+fitK3 <- fitK(3)
+fitK4 <- fitK(4)
+fitK5 <- fitK(5)
+```
+
+
+```{r, fig.width=10, fig.height=8}
+dfK <- data.frame()
+for (K in 2:5){
+  matL <- get(paste0('fitK',K))$matL
+  mat.pca <- svdX$v[,1:K]
+  
+  inner_join(df.sector, 
+             data.frame(dsindexcode = colnames(X),
+                        PC = rep(1:ncol(matL), each=nrow(matL)),
+                        method = rep(c('EBCD-pl', 'PCA'), each=prod(dim(matL))),
+                        loadings = c(c(matL), c(mat.pca))),
+             by='dsindexcode') %>%
+    mutate(method = factor(method, levels=c('PCA', 'EBCD-pl')),
+           K = K) %>% rbind(dfK) -> dfK
+  
+}
+
+dfK %>%
+    ggplot()+
+    theme_bw()+
+    theme(legend.position ='bottom')+
+    geom_col(aes(y=sector, x=loadings, fill=method), position='dodge')+
+    geom_vline(xintercept=0, alpha=0.3)+
+    xlab('')+ylab('')+
+    ggtitle('Loadings')+
+  scale_y_discrete(limits=rev)+
+    facet_grid(K~PC, labeller=label_both) -> fig
+print(fig)
+```
+
+```{r}
+source(here('code', 'fit_utils.R'))
+
+dfK <- data.frame()
+
+mat.pca <- svdX$v[,1:3]
+
+prepL <- function(matL){
+  signs <- sign(colSums(matL*mat.pca))
+  scales <- sqrt(colSums(matL^2))
+  matL <- matL %*% diag(x=1/(signs*scales))
+  return(matL)
+}
+
+K <- 3
+mat.splash <- get(paste0('fitK',K))$matL
+mat.spc <- prepL(fit.spc(X, 3)$L)
+mat.l1ppca <- prepL(fit.l1ppca(X, 3)$L)
+  
+
+inner_join(df.sector, 
+           data.frame(dsindexcode = colnames(X),
+                      PC = rep(1:ncol(mat.splash), each=nrow(mat.splash)),
+                      method = rep(c('EBCD-pl', 'PCA', 'SPC', 'L1PPCA'), each=prod(dim(mat.splash))),
+                      loadings = c(c(mat.splash), c(mat.pca), c(mat.spc), c(mat.l1ppca))),
+           by='dsindexcode') %>%
+  mutate(method = factor(method, levels=c('EBCD-pl','PCA', 'SPC', 'L1PPCA')),
+         K = K) %>% rbind(dfK) -> dfK
+
+dfK %>%
+    ggplot()+
+    theme_bw()+
+    theme(legend.position ='bottom')+
+    geom_col(aes(y=sector, x=loadings, fill=method), position='dodge')+
+    geom_vline(xintercept=0, alpha=0.3)+
+    xlab('')+ylab('')+
+    ggtitle('Loadings')+
+  scale_y_discrete(limits=rev)+
+    facet_grid(~PC, labeller=label_both) -> fig
+print(fig)
+
+dfK %>%
+  filter(method=='PCA' | method=='EBCD-pl') %>%
+    ggplot()+
+    theme_bw()+
+    theme(legend.position ='right')+
+    geom_col(aes(y=sector, x=loadings, fill=method), position='dodge')+
+    geom_vline(xintercept=0, alpha=0.3)+
+    xlab('')+ylab('')+
+  scale_y_discrete(limits=rev)+
+    facet_grid(~PC, labeller=label_both) -> fig
+ggsave(here('output', 'fig_sectors_loadings.pdf'), width=8, height=3)
+print(fig)
+
+```
+
+
+
+```{r}
+# PVE of PCA
+print(head(round(svdX$d^2/sum(svdX$d^2), 4)), 5)
+
+# PVE of EBCD-pl
+for (K in 2:5){
+  print(round(get(paste0('fitK',K))$PVE, 4))
+}
+```
+
+
+
+```{r}
+# average factor returns (*1e4) for each factor by periods
+for (K in 2:5){
+  matZ <- get(paste0('fitK', K))$matZ
+  
+  cutoff <- c()
+  for (date in c('2020-11-09', '2022-01-03', '2022-11-29')){
+    cutoff <- c(cutoff, which(df.ret$valuedate==date))
+  }
+  dfZ <- as.data.frame(matZ)
+  colnames(dfZ) <- paste0('Factor ', 1:K)
+  dfZ$period <- rep(c('I. Working from home', 'II. Reopening', 'III. Inflation'),
+                    times=c(cutoff[1]-1, cutoff[2]-cutoff[1], cutoff[3]-cutoff[2]+1))
+  
+  dfZ %>%
+    group_by(period) %>%
+    summarise_all(mean)%>%
+    mutate_if(is.numeric, function(x) round(x*10^4,2)) %>%
+    print.data.frame()
+}
+```
+
+
+
+
+```{r}
+# Fama French three factor returns
+df_ff <- read_table(here('data', 'fin', 'F-F_Research_Data_Factors_daily_edited.txt'),
+    col_types = cols(Date = col_date(format = "%Y%m%d")))
+df_ff %>%
+  filter(date >=as.Date('2020-01-01')) -> df_ff
+
+
+df.ret %>%
+  rename(Date=valuedate) %>%
+  inner_join(df_ff, by='Date') -> df.ret_ff
+  
+betas <- matrix(0, nrow=0, ncol=3)
+for (s in 2:12){
+  mod <- lm(unlist(df.ret_ff[,s]) ~ df.ret_ff$`Mkt-RF` + df.ret_ff$SMB + df.ret_ff$HML)
+  betas <- rbind(betas, mod$coefficients[2:4])
+}
+df.betas <- data.frame(betas)
+df.betas$sector <- df.sector$sector
+colnames(df.betas)[1:3] <- c('Mkt','SMB', 'HML')
+
+df.betas <- rbind(df.betas, df.betas)
+df.betas$PC <- factor(rep(c(2,3), each=11))
+
+df.betas.pca <- df.betas
+df.betas.pca$Loading <- c(mat.pca[,2], mat.pca[,3])
+df.betas.pca$method <- 'PCA'
+
+df.betas.splash <- df.betas
+df.betas.splash$Loading <- c(fitK3$matL[,2], fitK3$matL[,3])
+df.betas.splash$method <- 'EBCD-pl'
+
+
+rbind(df.betas.pca, df.betas.splash) %>%
+  mutate(method = factor(method, levels=c('EBCD-pl', 'PCA'))) %>%
+  ggplot()+
+  theme_bw()+
+  geom_vline(xintercept=0)+
+  geom_hline(yintercept=0)+
+  geom_label(aes(x=SMB, y=HML, label=sector, fill=Loading), size=3)+
+  scale_x_continuous(expand = expansion(mult = 0.3))+
+  scale_y_continuous(expand = expansion(mult = 0.1))+
+  scale_fill_gradient2()+
+  facet_grid(method~PC, labeller = label_both)
+ggsave(here('output', 'fig_sectors_plane.pdf'), width=8, height=5)
+
+```
+
+
+
+
+```{r}
+# WTI data from St. Louis Fed (FRED)
+read_csv(here('data', 'fin', 'DCOILWTICO.csv'), 
+         col_types = cols(DATE = col_date(format = "%Y-%m-%d"), 
+                          DCOILWTICO = col_double())) %>%
+  filter(is.na(DCOILWTICO)==0) %>%
+  mutate(wti = log(DCOILWTICO/lag(DCOILWTICO))) %>%
+  filter(is.na(wti)==0) %>%
+  select(-DCOILWTICO)-> df_wti
+
+
+df.ret %>%
+  select(valuedate) %>%
+  rename(DATE=valuedate) %>%
+  inner_join(df_wti, by='DATE') %>%
+  rename(Date = DATE) %>%
+  inner_join(df_ff, by='Date') -> df_factors
+
+for (K in 2:5){
+  matZ <- get(paste0('fitK', K))$matZ
+  colnames(matZ) <- paste0('F',1:K)
+  data.frame(Date = df.ret$valuedate,
+             matZ) %>%
+    inner_join(df_factors, by='Date') -> Factors
+  
+  print(round(cor(Factors[,-1]), 2))
+  pheatmap::pheatmap(abs(cor(Factors[,-1])), cluster_rows = FALSE, cluster_cols = FALSE,
+                   color = colorRampPalette(c("white", "navy"))(50))
+}
+
+# PCA
+K <- 5
+matF <- svdX$u[,1:K]
+colnames(matF) <- paste0('F',1:K)
+data.frame(Date = df.ret$valuedate,
+           matF) %>%
+  inner_join(df_factors, by='Date') -> Factors
+
+print(round(cor(Factors[,-1]), 2))
+pheatmap::pheatmap(abs(cor(Factors[,-1])), cluster_rows = FALSE, cluster_cols = FALSE,
+                 color = colorRampPalette(c("white", "navy"))(50))
+```
+
+
+
+
+```{r, fig.width=5, fig.height=5}
+X2 <- X
+colnames(X2) <- df.sector$sector
+X2 <- X2[,c('Energy', 'Financials', 'Industrials', 'Materials',
+            'Real Estate', 'Consumer Staples', 'Utilities',
+            'Communication Services', 'Consumer Discretionary', 'Information Technology'
+            )] # without Health Care
+pheatmap::pheatmap(cor(X2), cluster_rows = FALSE, cluster_cols = FALSE,
+                   color = colorRampPalette(c("white", "navy"))(50))
+```
