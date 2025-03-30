@@ -1,6 +1,6 @@
 library(here)
 library(tidyverse)
-source(here('code', 'fit_utils.R'))
+source(here('code', 'utils', 'fit_utils.R'))
 
 draw.fig <- TRUE
 
@@ -28,13 +28,13 @@ mat <- lapply(1:nseeds, function(x){
 
 mat <- do.call(rbind, mat)
 MASS::write.matrix(mat, 
-                   file = here('data', 'sim1.csv'), 
+                   file = here('data', 'sim', 'sim1.csv'), 
                    sep = ',')
 rm(mat)
 
 
 # fit models
-mat <- read_csv(file = here('data', 'sim1.csv'), 
+mat <- read_csv(file = here('data', 'sim', 'sim1.csv'), 
                 col_names=FALSE, show_col_types = FALSE)
 mat <- as.matrix(mat); colnames(mat) <- NULL
 
@@ -45,7 +45,22 @@ t1 <- Sys.time()
 print((t1 - t0)/nseeds)
 
 t0 <- Sys.time()
-res.ebcd <- run.on.mat(mat, function(x){ fit.ebcd(x,K)$L }, n, p, nseeds)
+res.ebcd_pl <- run.on.mat(mat, function(x){ fit.ebcd_pl(x,K)$L }, n, p, nseeds)
+t1 <- Sys.time()
+print((t1 - t0)/nseeds)
+
+t0 <- Sys.time()
+res.ebcd_l <- run.on.mat(mat, function(x){ fit.ebcd_l(x,K)$L }, n, p, nseeds)
+t1 <- Sys.time()
+print((t1 - t0)/nseeds)
+
+t0 <- Sys.time()
+res.ebmf_pl <- run.on.mat(mat, function(x){ fit.ebmf_pl(x,K)$L }, n, p, nseeds)
+t1 <- Sys.time()
+print((t1 - t0)/nseeds)
+
+t0 <- Sys.time()
+res.ebmf_l <- run.on.mat(mat, function(x){ fit.ebmf_l(x,K)$L }, n, p, nseeds)
 t1 <- Sys.time()
 print((t1 - t0)/nseeds)
 
@@ -59,23 +74,20 @@ res.spc    <- run.on.mat(mat, function(x){ fit.spc(x,K)$L }, n, p, nseeds)
 t1 <- Sys.time()
 print((t1 - t0)/nseeds)
 
-### ebpca
-system("cd '/Users/jkang/Library/CloudStorage/Box-Box/research/ebcd-paper/code/';
-       /Users/jkang/miniconda3/bin/python3 run_ebpca_sim1.py",
-       ignore.stdout=FALSE, wait=TRUE)
-res.ebpca <- as.matrix(read_csv(here('output', 'ebpca_sim1.csv'), 
-                                col_names = FALSE, show_col_types = FALSE))
 
+
+### ebpca
+# run run_ebpca_sim1.py
+res.ebpca <- as.matrix(read_csv(here('output', 'sim', 'ebpca_sim1.csv'), 
+                                col_names = FALSE, show_col_types = FALSE))
 ### gpower, choose parameter by smallest dcov
-system("cd '/Users/jkang//Library/CloudStorage/Box-Box/research/ebcd-paper/code/';
-       /Applications/MATLAB_R2023b.app/bin/matlab -nodesktop -nosplash -r run_gpower_sim1",
-       ignore.stdout=TRUE, wait=TRUE)
+# run run_gpower_sim1.m
 res.gpower <- opt.gpower(simno = 1, n, nseeds, K, V0, Sigma, draw.fig)
 
  
 # compute distance
 df.sim1 <- data.frame()
-methods <- c('pca', 'gpower', 'ebcd', 'l1ppca', 'spc', 'ebpca')
+methods <- c('pca', 'gpower', 'ebcd_pl', 'ebcd_l', 'ebmf_pl', 'ebmf_l', 'l1ppca', 'spc', 'ebpca')
 for (method in methods){
   df.sim1 <- rbind(df.sim1, 
                data.frame(method = method, 
@@ -84,4 +96,4 @@ for (method in methods){
                           dist = c(dist.on.res(get(paste0('res.', method))/sqrt(n), V0, Sigma, nseeds, K))))
 }
 
-saveRDS(df.sim1, file=here('output', 'df.sim1.rds'))
+saveRDS(df.sim1, file=here('output', 'sim', 'df.sim1.rds'))

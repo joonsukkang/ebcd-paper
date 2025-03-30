@@ -106,7 +106,7 @@ data.frame(period = rep(c('Overall',
   geom_vline(xintercept=0)+
   xlab('')+ylab('')+
   facet_grid(~period, scales='free_x')
-ggsave(here('output', 'fig_sectors_returns.pdf'), width=8, height=3)
+ggsave(here('output', 'fin', 'fig_sectors_returns.pdf'), width=8, height=3)
 ```
 
 
@@ -194,7 +194,6 @@ fitK <- function(K){
 
 ```
 
-
 ```{r}
 fitK2 <- fitK(2)
 fitK3 <- fitK(3)
@@ -202,39 +201,8 @@ fitK4 <- fitK(4)
 fitK5 <- fitK(5)
 ```
 
-
-```{r, fig.width=10, fig.height=8}
-dfK <- data.frame()
-for (K in 2:5){
-  matL <- get(paste0('fitK',K))$matL
-  mat.pca <- svdX$v[,1:K]
-  
-  inner_join(df.sector, 
-             data.frame(dsindexcode = colnames(X),
-                        PC = rep(1:ncol(matL), each=nrow(matL)),
-                        method = rep(c('EBCD-pl', 'PCA'), each=prod(dim(matL))),
-                        loadings = c(c(matL), c(mat.pca))),
-             by='dsindexcode') %>%
-    mutate(method = factor(method, levels=c('PCA', 'EBCD-pl')),
-           K = K) %>% rbind(dfK) -> dfK
-  
-}
-
-dfK %>%
-    ggplot()+
-    theme_bw()+
-    theme(legend.position ='bottom')+
-    geom_col(aes(y=sector, x=loadings, fill=method), position='dodge')+
-    geom_vline(xintercept=0, alpha=0.3)+
-    xlab('')+ylab('')+
-    ggtitle('Loadings')+
-  scale_y_discrete(limits=rev)+
-    facet_grid(K~PC, labeller=label_both) -> fig
-print(fig)
-```
-
 ```{r}
-source(here('code', 'fit_utils.R'))
+source(here('code', 'utils', 'fit_utils.R'))
 
 dfK <- data.frame()
 
@@ -248,59 +216,42 @@ prepL <- function(matL){
 }
 
 K <- 3
-mat.splash <- get(paste0('fitK',K))$matL
+mat.ebcd_pl <- prepL(fit.ebcd_pl(X, 3)$L)
+mat.ebcd_l <- prepL(fit.ebcd_l(X, 3)$L)
 mat.spc <- prepL(fit.spc(X, 3)$L)
 mat.l1ppca <- prepL(fit.l1ppca(X, 3)$L)
-  
+
 
 inner_join(df.sector, 
            data.frame(dsindexcode = colnames(X),
-                      PC = rep(1:ncol(mat.splash), each=nrow(mat.splash)),
-                      method = rep(c('EBCD-pl', 'PCA', 'SPC', 'L1PPCA'), each=prod(dim(mat.splash))),
-                      loadings = c(c(mat.splash), c(mat.pca), c(mat.spc), c(mat.l1ppca))),
+                      PC = rep(1:ncol(mat.ebcd_pl), each=nrow(mat.ebcd_pl)),
+                      method = rep(c('EBCD-pl', 'EBCD-l', 'L1-penalized PCA', 'SPC', 'PCA'), each=prod(dim(mat.ebcd_pl))),
+                      loadings = c(c(mat.ebcd_pl), c(mat.ebcd_l), c(mat.l1ppca), c(mat.spc), c(mat.pca))),
            by='dsindexcode') %>%
-  mutate(method = factor(method, levels=c('EBCD-pl','PCA', 'SPC', 'L1PPCA')),
+  mutate(method = factor(method, levels=c('PCA', 
+                                          'SPC',
+                                          'L1-penalized PCA', 
+                                          'EBCD-l', 
+                                          'EBCD-pl'
+                                          )),
          K = K) %>% rbind(dfK) -> dfK
 
-dfK %>%
-    ggplot()+
-    theme_bw()+
-    theme(legend.position ='bottom')+
-    geom_col(aes(y=sector, x=loadings, fill=method), position='dodge')+
-    geom_vline(xintercept=0, alpha=0.3)+
-    xlab('')+ylab('')+
-    ggtitle('Loadings')+
-  scale_y_discrete(limits=rev)+
-    facet_grid(~PC, labeller=label_both) -> fig
-print(fig)
 
 dfK %>%
-  filter(method=='PCA' | method=='EBCD-pl') %>%
     ggplot()+
     theme_bw()+
     theme(legend.position ='right')+
     geom_col(aes(y=sector, x=loadings, fill=method), position='dodge')+
     geom_vline(xintercept=0, alpha=0.3)+
     xlab('')+ylab('')+
-  scale_y_discrete(limits=rev)+
+    ggtitle('Loadings')+
+    scale_y_discrete(limits=rev)+
+    scale_fill_brewer(palette="Set1") +
+    guides(fill = guide_legend(reverse = TRUE))+
     facet_grid(~PC, labeller=label_both) -> fig
-ggsave(here('output', 'fig_sectors_loadings.pdf'), width=8, height=3)
+ggsave(here('output', 'fin', 'fig_sectors_loadings.pdf'), width=10, height=6)
 print(fig)
-
 ```
-
-
-
-```{r}
-# PVE of PCA
-print(head(round(svdX$d^2/sum(svdX$d^2), 4)), 5)
-
-# PVE of EBCD-pl
-for (K in 2:5){
-  print(round(get(paste0('fitK',K))$PVE, 4))
-}
-```
-
 
 
 ```{r}
@@ -356,12 +307,12 @@ df.betas.pca <- df.betas
 df.betas.pca$Loading <- c(mat.pca[,2], mat.pca[,3])
 df.betas.pca$method <- 'PCA'
 
-df.betas.splash <- df.betas
-df.betas.splash$Loading <- c(fitK3$matL[,2], fitK3$matL[,3])
-df.betas.splash$method <- 'EBCD-pl'
+df.betas.ebcd_pl <- df.betas
+df.betas.ebcd_pl$Loading <- c(fitK3$matL[,2], fitK3$matL[,3])
+df.betas.ebcd_pl$method <- 'EBCD-pl'
 
 
-rbind(df.betas.pca, df.betas.splash) %>%
+rbind(df.betas.pca, df.betas.ebcd_pl) %>%
   mutate(method = factor(method, levels=c('EBCD-pl', 'PCA'))) %>%
   ggplot()+
   theme_bw()+
@@ -372,66 +323,6 @@ rbind(df.betas.pca, df.betas.splash) %>%
   scale_y_continuous(expand = expansion(mult = 0.1))+
   scale_fill_gradient2()+
   facet_grid(method~PC, labeller = label_both)
-ggsave(here('output', 'fig_sectors_plane.pdf'), width=8, height=5)
+ggsave(here('output', 'fin', 'fig_sectors_plane.pdf'), width=8, height=5)
 
-```
-
-
-
-
-```{r}
-# WTI data from St. Louis Fed (FRED)
-read_csv(here('data', 'fin', 'DCOILWTICO.csv'), 
-         col_types = cols(DATE = col_date(format = "%Y-%m-%d"), 
-                          DCOILWTICO = col_double())) %>%
-  filter(is.na(DCOILWTICO)==0) %>%
-  mutate(wti = log(DCOILWTICO/lag(DCOILWTICO))) %>%
-  filter(is.na(wti)==0) %>%
-  select(-DCOILWTICO)-> df_wti
-
-
-df.ret %>%
-  select(valuedate) %>%
-  rename(DATE=valuedate) %>%
-  inner_join(df_wti, by='DATE') %>%
-  rename(Date = DATE) %>%
-  inner_join(df_ff, by='Date') -> df_factors
-
-for (K in 2:5){
-  matZ <- get(paste0('fitK', K))$matZ
-  colnames(matZ) <- paste0('F',1:K)
-  data.frame(Date = df.ret$valuedate,
-             matZ) %>%
-    inner_join(df_factors, by='Date') -> Factors
-  
-  print(round(cor(Factors[,-1]), 2))
-  pheatmap::pheatmap(abs(cor(Factors[,-1])), cluster_rows = FALSE, cluster_cols = FALSE,
-                   color = colorRampPalette(c("white", "navy"))(50))
-}
-
-# PCA
-K <- 5
-matF <- svdX$u[,1:K]
-colnames(matF) <- paste0('F',1:K)
-data.frame(Date = df.ret$valuedate,
-           matF) %>%
-  inner_join(df_factors, by='Date') -> Factors
-
-print(round(cor(Factors[,-1]), 2))
-pheatmap::pheatmap(abs(cor(Factors[,-1])), cluster_rows = FALSE, cluster_cols = FALSE,
-                 color = colorRampPalette(c("white", "navy"))(50))
-```
-
-
-
-
-```{r, fig.width=5, fig.height=5}
-X2 <- X
-colnames(X2) <- df.sector$sector
-X2 <- X2[,c('Energy', 'Financials', 'Industrials', 'Materials',
-            'Real Estate', 'Consumer Staples', 'Utilities',
-            'Communication Services', 'Consumer Discretionary', 'Information Technology'
-            )] # without Health Care
-pheatmap::pheatmap(cor(X2), cluster_rows = FALSE, cluster_cols = FALSE,
-                   color = colorRampPalette(c("white", "navy"))(50))
 ```

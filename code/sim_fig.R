@@ -1,10 +1,8 @@
 library(here)
 library(tidyverse)
 
-
-df.sim1 <- readRDS(file=here('output', 'df.sim1.rds'))
-df.sim2 <- readRDS(file=here('output', 'df.sim2.rds'))
-
+df.sim1 <- readRDS(file=here('output', 'sim', 'df.sim1.rds'))
+df.sim2 <- readRDS(file=here('output', 'sim', 'df.sim2.rds'))
 
 # figure
 df.sim1$Simulation <- 1
@@ -12,7 +10,10 @@ df.sim2$Simulation <- 2
 
 rbind(df.sim1, df.sim2) %>%
   mutate(method = recode(method, 
-                         ebcd = 'EBCD-pl',
+                         ebcd_pl = 'EBCD-pl',
+                         ebcd_l = 'EBCD-l',
+                         ebmf_pl = 'EBMF-n/pl',
+                         ebmf_l = 'EBMF-n/l',
                          l1ppca = 'L1-penalized PCA',
                          spc = 'SPC',
                          ebpca = 'EB-PCA',
@@ -25,7 +26,7 @@ rbind(df.sim1, df.sim2) %>%
                       d3 = 'd[3]',
                       dOR= 'd[or]', 
                       dcov = 'd[cov]')) %>%
-  mutate(method = factor(method, levels=c('EBCD-pl', 'L1-penalized PCA', 'SPC', 
+  mutate(method = factor(method, levels=c('EBCD-pl', 'EBCD-l', 'EBMF-n/pl', 'EBMF-n/l', 'L1-penalized PCA', 'SPC', 
                                           'EB-PCA', 'GPower', 'PCA'))
   ) -> df.sim
 
@@ -49,7 +50,7 @@ df.sim %>%
 
 
 print(fig.sim)
-ggsave(filename=here('output', 'fig_sim.pdf'), device='pdf', width=6, height=4)
+ggsave(filename=here('output', 'sim', 'fig_sim.pdf'), device='pdf', width=6, height=4)
 
 
 df.sim %>% 

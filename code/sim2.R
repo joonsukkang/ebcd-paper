@@ -1,6 +1,6 @@
 library(here)
 library(tidyverse)
-source(here('code', 'fit_utils.R'))
+source(here('code', 'utils', 'fit_utils.R'))
 
 draw.fig <- TRUE
 
@@ -30,13 +30,13 @@ mat <- lapply(1:nseeds, function(x){
 
 mat <- do.call(rbind, mat)
 MASS::write.matrix(mat, 
-                   file = here('data', 'sim2.csv'), 
+                   file = here('data', 'sim', 'sim2.csv'), 
                    sep = ',')
 rm(mat)
 
 
 # fit models
-mat <- read_csv(file = here('data', 'sim2.csv'), 
+mat <- read_csv(file = here('data', 'sim', 'sim2.csv'), 
                 col_names=FALSE, show_col_types = FALSE)
 mat <- as.matrix(mat); colnames(mat) <- NULL
 
@@ -47,7 +47,22 @@ t1 <- Sys.time()
 print((t1 - t0)/nseeds)
 
 t0 <- Sys.time()
-res.ebcd <- run.on.mat(mat, function(x){ fit.ebcd(x,K)$L }, n, p, nseeds)
+res.ebcd_pl <- run.on.mat(mat, function(x){ fit.ebcd_pl(x,K)$L }, n, p, nseeds)
+t1 <- Sys.time()
+print((t1 - t0)/nseeds)
+
+t0 <- Sys.time()
+res.ebcd_l <- run.on.mat(mat, function(x){ fit.ebcd_l(x,K)$L }, n, p, nseeds)
+t1 <- Sys.time()
+print((t1 - t0)/nseeds)
+
+t0 <- Sys.time()
+res.ebmf_pl <- run.on.mat(mat, function(x){ fit.ebmf_pl(x,K)$L }, n, p, nseeds)
+t1 <- Sys.time()
+print((t1 - t0)/nseeds)
+
+t0 <- Sys.time()
+res.ebmf_l <- run.on.mat(mat, function(x){ fit.ebmf_l(x,K)$L }, n, p, nseeds)
 t1 <- Sys.time()
 print((t1 - t0)/nseeds)
 
@@ -63,16 +78,14 @@ print((t1 - t0)/nseeds)
 
 
 ### ebpca
-system("cd '/Users/jkang/Library/CloudStorage/Box-Box/research/ebcd-paper/code/';
-       /Users/jkang/miniconda3/bin/python3 run_ebpca_sim2.py",
-       ignore.stdout=FALSE, wait=TRUE)
-res.ebpca <- as.matrix(read_csv(here('output', 'ebpca_sim2.csv'), 
+# run run_ebpca_sim2.py
+res.ebpca <- as.matrix(read_csv(here('output', 'sim', 'ebpca_sim2.csv'), 
                                 col_names = FALSE, show_col_types = FALSE))
 # gpower: hard to specify mu
 
 # compute distance
 df.sim2 <- data.frame()
-methods <- c('pca', 'ebcd', 'l1ppca', 'spc', 'ebpca')
+methods <- c('pca', 'ebcd_pl', 'ebcd_l', 'ebmf_pl', 'ebmf_l', 'l1ppca', 'spc', 'ebpca')
 for (method in methods){
   df.sim2 <- rbind(df.sim2, 
                data.frame(method = method, 
@@ -81,4 +94,4 @@ for (method in methods){
                           dist = c(dist.on.res(get(paste0('res.', method))/sqrt(n), V0, Sigma, nseeds, K))))
 }
 
-saveRDS(df.sim2, file=here('output', 'df.sim2.rds'))
+saveRDS(df.sim2, file=here('output', 'sim', 'df.sim2.rds'))

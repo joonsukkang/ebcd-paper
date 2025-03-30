@@ -1,7 +1,11 @@
 # functions to fit data
-source(here('code', 'L1PPCA.R'))
+source(here('code', 'utils', 'L1PPCA.R'))
+source(here('code', 'utils', 'ebnm_laplace.R'))
 library(PMA)
+# devtools::install_github("joonsukkang/ebcd")
+# devtools::install_github("willwerscheid/flashier")
 library(ebcd)
+library(flashier)
 
 
 fit.pca <- function(X, K){
@@ -22,14 +26,65 @@ fit.irlba <- function(X, K){
 }
 
 
-fit.ebcd <- function(X, K){
+fit.ebcd_pl <- function(X, K){
 
-  fit <- ebcd(X=X, Kmax=K)
+  fit <- ebcd(X=X, Kmax=K, ebnm_fn = ebnm::ebnm_point_laplace)
   out.list <- list(Z=fit$Z/sqrt(nrow(X)), L=fit$EL*sqrt(nrow(X)))
 
   return(out.list)
 }
 
+fit.ebcd_l <- function(X, K){
+  
+  fit <- ebcd(X=X, Kmax=K, ebnm_fn = ebnm_laplace)
+  out.list <- list(Z=fit$Z/sqrt(nrow(X)), L=fit$EL*sqrt(nrow(X)))
+  
+  return(out.list)
+}
+
+fit.ebmf_pl <- function(X, K){
+  fit <- flash(data=X, greedy_Kmax=K, ebnm_fn = c(ebnm::ebnm_normal, ebnm::ebnm_point_laplace), verbose=0, backfit=TRUE)
+  K_fit <- fit$n_factors
+  if (K_fit ==0){
+    out.list <- list(Z=matrix(0, nrow(X), K), L=matrix(0, ncol(X), K))
+    return(out.list)
+    
+  }else if (K_fit < K){
+    fit$L_pm <- cbind(fit$L_pm, matrix(0, nrow(fit$L_pm), K-K_fit))
+    fit$F_pm <- cbind(fit$F_pm, matrix(0, nrow(fit$F_pm), K-K_fit))
+  }
+  sizes <- sqrt(diag(crossprod(fit$L_pm)))
+  for (k in 1:length(sizes)) {
+    if (sizes[k] == 0) next
+    fit$L_pm[, k] <- fit$L_pm[, k] / sizes[k]
+    fit$F_pm[, k] <- fit$F_pm[, k] * sizes[k]
+  }
+
+  out.list <- list(Z=fit$L_pm, L=fit$F_pm)
+  return(out.list)
+}
+
+fit.ebmf_l <- function(X, K){
+  fit <- flash(data=X, greedy_Kmax=K, ebnm_fn = c(ebnm::ebnm_normal, ebnm_laplace), verbose=0, backfit=TRUE)
+  K_fit <- fit$n_factors
+  if (K_fit ==0){
+    out.list <- list(Z=matrix(0, nrow(X), K), L=matrix(0, ncol(X), K))
+    return(out.list)
+    
+  }else if (K_fit < K){
+    fit$L_pm <- cbind(fit$L_pm, matrix(0, nrow(fit$L_pm), K-K_fit))
+    fit$F_pm <- cbind(fit$F_pm, matrix(0, nrow(fit$F_pm), K-K_fit))
+  }
+  sizes <- sqrt(diag(crossprod(fit$L_pm)))
+  for (k in 1:length(sizes)) {
+    if (sizes[k] == 0) next
+    fit$L_pm[, k] <- fit$L_pm[, k] / sizes[k]
+    fit$F_pm[, k] <- fit$F_pm[, k] * sizes[k]
+  }
+  
+  out.list <- list(Z=fit$L_pm, L=fit$F_pm)
+  return(out.list)
+}
 
 fit.l1ppca <- function(X, 
                        K,
@@ -172,7 +227,7 @@ dist.on.res <- function(res, V0 = NULL, Sigma, nseeds, K){
 
 
 opt.gpower <- function(simno, n, nseeds, K, V0, Sigma, draw.fig=FALSE){
-  res.gpower <- read_csv(here('output', paste0('gpower_sim', simno, '.csv')), 
+  res.gpower <- read_csv(here('output', 'sim', paste0('gpower_sim', simno, '.csv')), 
                          col_names = FALSE, show_col_types = FALSE)
   res.gpower <- as.matrix(res.gpower)/sqrt(n)
   dist.gpower <- data.frame()
