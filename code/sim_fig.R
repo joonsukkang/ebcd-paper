@@ -41,16 +41,26 @@ df.sim %>%
   theme(axis.title.x = element_blank(),
         axis.text.x=element_blank(),
         axis.ticks.x=element_blank(),
-        legend.position = 'bottom')+
+        legend.position = 'bottom',
+        axis.text.y = element_text(size = 6),
+        strip.text = element_text(size = 7),
+        legend.text = element_text(size = 7),
+        legend.title = element_text(size = 7),
+        legend.margin = margin(t = -7, unit = "pt"),
+        plot.margin = margin(2, 2, 2, 2),
+        panel.spacing = unit(0.2, "lines"),
+        legend.key.size = unit(0.4, "cm")
+        )+
+  guides(color = guide_legend(nrow = 1), fill = guide_legend(nrow = 1))+
   geom_boxplot(aes(y=dist, col=method), outlier.size=0.5)+
-  ylab('')+
+  ylab(NULL)+
   facet_wrap(vars(Simulation, dist.type2), scales = 'free_y', nrow=2,
              labeller=labeller(Simulation = label_both,
                                dist.type2 = label_parsed)) -> fig.sim
 
 
 print(fig.sim)
-ggsave(filename=here('output', 'sim', 'fig_sim.pdf'), device='pdf', width=6, height=4)
+ggsave(filename=here('output', 'sim', 'fig_sim.pdf'), device='pdf', width=8, height=4)
 
 
 df.sim %>% 
